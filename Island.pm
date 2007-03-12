@@ -1,5 +1,4 @@
 
-
 =pod
 
 =head1 NAME
@@ -42,23 +41,15 @@ Set::IntSpan::Island - extension for Set::IntSpan to handle islands and covers
 
 =head1 DESCRIPTION
 
-=head2 Data Structure
-
-This module extends the Set::IntSpan module. It adds a number of methods to Set::IntSpan that are specific to islands and covers. An integer set, as represented by Set::IntSpan, is a collection of covers on the integer line
-
-  ...-----xxxx----xxxxxxxx---xxxxxxxx---xx---x----....
+This module extends the C<Set::IntSpan> module by Steve McDougall. It implementing methods that are specific to islands and covers. C<Set::IntSpan::Island> inherits from Set::IntSpan.
 
 =head2 Terminology
 
-An integer set may be composed of one or more contiguous spans. In this module, spans are called islands. Regions not in the set that fall between adjacent spans are termed holes. For example, this set
+An integer set, as represented by C<Set::IntSpan>, is a collection of islands (or spans) on the integer line
 
-  ...-----xxxxx----xx---x-----...
+  ...-----xxxx----xxxxxxxx---xxxxxxxx---xx---x----....
 
-has three islands and two holes. Since this is a finite set, the two infinite regions on either side of the set are not counted as holes within the context of this module.
-
-=head2 Operations
-
-This module permits the following operations, here shown graphically. Each method is described fully in the METHODS section.
+Islands are disjoint and contiguous, by definition, and may be represented by their own C<Set::IntSpan> object. Regions not in the set that fall between adjacent spans are termed holes. For example, the integer set above is composed of 5 islands and 4 holes. The two infinite regions on either side of the set are not counted as holes within the context of this module.
 
 =head1 METHODS
 
@@ -74,19 +65,19 @@ use Carp;
 
 our @ISA = qw(Set::IntSpan);
 our @EXPORT_OK = qw();
-our $VERSION = '0.01';
+our $VERSION = '0.02';
 
 =pod
 
-=head2 $set = Set::IntSpan::Enhanced->new( $set_spec )
+=head2 $set = Set::IntSpan::Island->new( $set_spec )
 
 Constructs a set using the set specification as supported by C<Set::IntSpan>.
 
-=head2 $set = Set::IntSpan::Enhanced->new( $a, $b )
+=head2 $set = Set::IntSpan::Island->new( $a, $b )
 
 Extension to C<Set::IntSpan> C<new> method, this double-argument version creates a set formed by the range a-b. This is equivalent to
 
-  $set = Set::IntSpan::Enhanced->new("$a-$b")
+  $set = Set::IntSpan::Island->new("$a-$b")
 
 but permits initialization from a list instead of a string.
 
@@ -172,7 +163,7 @@ sub distance {
 
 =head2 $d = $set->sets()
 
-Returns all spans in $set as C<Set::IntSpan::Island> objects.
+Returns all spans in $set as C<Set::IntSpan::Island> objects. This method overrides the C<sets> method in C<Set::IntSpan> in order to return sets as Set::IntSpan::Island objects.
 
 =cut
 
@@ -181,7 +172,7 @@ sub sets {
   return map { $set->new($_)->cover } $set->spans;
 }
 
-=head2 $set = $set->excise( $minlength)
+=head2 $set = $set->excise( $minlength )
 
 Removes all islands within $set smaller than $minlength.
 
@@ -194,7 +185,7 @@ sub excise {
   return $set;
 }
 
-=head2 $set = $set->fill( $maxlength)
+=head2 $set = $set->fill( $maxlength )
 
 Fills in all holes in $set smaller than $maxlength.
 
@@ -232,6 +223,7 @@ sub find_islands {
   } else {
     croak "Set::IntSpan::Island: don't know how to deal with input to find_island";
   }
+  print ref($self),ref($member),"\n";
   my $islands = $self->new;
   return $islands if ! $self->overlap($member);
   for my $set ($self->sets) {
@@ -282,13 +274,13 @@ sub nearest_island {
 
 =pod
 
-=head2 $cover_data = extract_covers( $set_hash_ref )
+=head2 $cover_data = Set::IntSpan::Island->extract_covers( $set_hash_ref )
 
 Given a C<$set_hash> reference
 
   { id1=>$set1, id2=>$set2, ..., idn=>$setn}
 
-where $setj is a finite Set::IntSpan::Enhanced object and idj is a unique key, C<extract_covers> performs an exhaustive intersection of all sets and returns a list of all covers and set memberships. For example, given the id/runlist combination
+where $setj is a finite Set::IntSpan::Island object and idj is a unique key, C<extract_covers> performs an exhaustive intersection of all sets and returns a list of all covers and set memberships. For example, given the id/runlist combination
  
   a  10-15
   b  12
@@ -374,6 +366,143 @@ sub extract_covers {
   return $covers;
 }
 
+=pod
+
+=head2 $island = $set->num_islands
+
+Returns the number of islands in the set.
+
+=cut 
+
+sub num_islands {
+  my $self = shift;
+  return scalar $self->spans;
+}
+
+=head2 $island = $set->at_island( $island_index )
+
+Returns the island indexed by $island_index. Islands are 0-indexed. For a set with N islands, the first island (ordered left-to-right) has index 0 and the last island has index N-1.
+
+If $island_index is negative, counting is done back from the last island (c.f. negative indexes of Perl arrays).
+
+=cut
+
+sub at_island {
+  my ($self,$n) = @_;
+  my @islands = $self->sets;
+  return defined $n && defined $islands[$n] ? $islands[$n] : undef;
+}
+
+=pod
+
+=head2 $island = $set->first_island
+
+Returns the first island of the set as a Set::IntSpan::Island object. As a side-effect, sets the iterator to the first island.
+
+If the set is empty, returns undef.
+
+=cut
+
+sub first_island {
+  my $self = shift;
+  if($self->cardinality) {
+    $self->{iterator} = 0;
+    return $self->at_island( $self->{iterator} );
+  } else {
+    $self->{iterator} = undef;
+    return undef;
+  }
+}
+
+=pod
+
+=head2 $island = $set->last_island
+
+Returns the last island of the set as a Set::IntSpan::Island object. As a side-effect, sets the iterator to the last island.
+
+If the set is empty, returns undef.
+
+=cut
+
+sub last_island {
+  my $self = shift;
+  if($self->cardinality) {
+    $self->{iterator} = $self->num_islands - 1;
+    return $self->at_island( $self->{iterator} );
+  } else {
+    $self->{iterator} = undef;
+    return undef;
+  }
+}
+
+=pod
+
+=head2 $island = $set->next_island
+
+Advances the iterator forward by one island, and returns the next island. If the iterator is undefined (e.g. not previously set by first()), the first island is returned.
+
+Returns undef if the set is empty or if no more islands are available.
+
+=cut 
+
+sub next_island {
+  my $self = shift;
+  if($self->cardinality) {
+    $self->{iterator} = defined $self->{iterator} ? ++$self->{iterator} : 0;
+    my $next = $self->at_island( $self->{iterator} );
+    if($next) {
+      return $next;
+    } else {
+      $self->{iterator} = undef;
+      return undef;
+    }
+  } else {
+    $self->{iterator} = undef;
+    return undef;
+  }
+}
+
+=pod
+
+=head2 $island = $set->prev_island
+
+Reverses the iterator backward by one island, and returns the previous island. If the iterator is undefined (e.g. not previously set by last()), the last island is returned.
+
+Returns undef if the set is empty or if no more islands are available.
+
+=cut
+
+sub prev_island {
+  my $self = shift;
+  if($self->cardinality) {
+    $self->{iterator} = defined $self->{iterator} ? --$self->{iterator} : $self->num_islands - 1;
+    if($self->{iterator} >= 0) {
+      return $self->at_island( $self->{iterator} );
+    } else {
+      $self->{iterator} = undef;
+      return undef;
+    }
+  } else {
+    $self->{iterator} = undef;
+    return undef;
+  }
+}
+
+=pod
+
+=head2 $island = $set->current_island
+
+Returns the island at the current iterator position.
+
+Returns undef if the set is empty or if the iterator is not defined.
+
+=cut
+
+sub current_island {
+  my $self = shift;
+  return $self->at_island( $self->{iterator} );
+}
+
 1;
 
 __END__
@@ -384,15 +513,25 @@ Martin Krzywinski <martink@bcgsc.ca>
 
 =head1 ACKNOWLEDGMENTS
 
-=item * Steve McDougall <swmcd@theworld.com>
+=item * Steve McDougall <swmcd@theworld.com> (C<Set::IntSpan>)
 
 =head1 HISTORY
 
-v0.01 5 Mar 2007
+=over
+
+=item v0.02 12 Mar 2007
+
+Added iterator functions and updated documentation.
+
+=item v0.01 5 Mar 2007
+
+First release.
+
+=back
 
 =head1 SEE ALSO
 
-Set::IntSpan by Steven McDougall
+C<Set::IntSpan> by Steven McDougall
 
 =head1 COPYRIGHT
 

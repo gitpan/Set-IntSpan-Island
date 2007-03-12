@@ -1,5 +1,10 @@
 Revision history for Perl extension Set::IntSpan::Island.
 
+0.02  Mon Mar 12 
+	- updated documentation
+	- added island iterator (c.f. Set::IntSpan's iterator): num_islands, at_island, current_island, first, next, prev, last
+        - added extract_cover example
+
 0.01  Mon Mar  5 11:02:26 2007
 	- original version; created by h2xs 1.19
 

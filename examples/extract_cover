@@ -1,0 +1,78 @@
+#!/bin/env perl
+
+=pod
+
+=head1 NAME
+
+extract_cover - driver script to illustrate extract_cover method in Set::IntSpan::Island
+
+=head1 SYNOPSIS
+
+Just run it.
+
+=head1 DESCRIPTION
+
+Using extract_covers to simulate a random coverage process.
+
+Given an integer range 0-$range, I create randomly placed islands of size $island_size on the range. These islands are stored in the hash $set_hash, each indexed by a counter. 
+
+   ....................................................->
+   ----- 1   ----- 15          ----- 31     ------ 7
+                   ----- 2   ----- 25          ------ 8
+      ----- 13   ----- 3           ------ 9  ----- 4
+                      ----- 6
+
+There's enough islands to cover the range $fold_coverage times. The islands are exhaustively intersected using extract_covers to produce the covers shown below. Each cover is annotated with the indexes of the islands that intersect it. 
+
+                  3               31
+   ___-----__----_-___--___--__---_-_____---_--___---__
+   1   13    15  15 2 2 6    25 31 31 9     7 7 7  8
+                 3  3 6         25 9          4 4
+                                                8
+
+=head1 AUTHOR
+
+Martin Krzywinski <martink@bcgsc.ca>
+
+=cut
+
+use strict;
+use FindBin;
+use lib "$FindBin::Bin/../blib/lib";
+use Set::IntSpan::Island 0.02;
+
+my $range         = 10000;
+my $island_size   = 25;
+my $fold_coverage = 5;
+
+my $nsets = $range * $fold_coverage / $island_size;
+
+my $set_hash;
+for my $i (1..$nsets) {
+    my $start = int(rand($range-$island_size))-$island_size+1;
+    $set_hash->{$i} = Set::IntSpan::Island->new($start,$start+$island_size-1);
+}
+
+my $cover_data = Set::IntSpan::Island->extract_covers($set_hash);
+
+my ($wsum,$sum);
+my $depthsum;
+for my $cover (@$cover_data) {
+    my ($set,$ids) = @$cover;
+    my $depth = @$ids;
+    printf("cover %4d %4d %4d depth %3d ids %s\n",$set->min,$set->max,$set->size,$depth,join(":",@$ids));
+    $wsum += $depth * $set->size;
+    $sum  += $set->size;
+    $depthsum->[$depth] += $set->size;
+}
+
+my $cumulsum;
+for my $depth (0..@$depthsum-1) {
+    $cumulsum += $depthsum->[$depth];
+    printf("coverage at depth %2d %4d %.3f cumul %4d %.3f\n",$depth,$depthsum->[$depth],$depthsum->[$depth]/$range,$cumulsum,$cumulsum/$range);
+}
+
+printf("average depth %.3f [target %.3f]\n",$wsum/$sum,$fold_coverage);
+
+
+
