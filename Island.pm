@@ -10,9 +10,9 @@ Set::IntSpan::Island - extension for Set::IntSpan to handle islands and covers
   use Set::IntSpan::Island
 
   # inherits normal behaviour from Set::IntSpan
-  $set = Set::IntSpan::Enhanced->new( $set_spec );
+  $set = Set::IntSpan::Island->new( $set_spec );
   # special two-value input creates a range a-b
-  $set = Set::IntSpan::Enhanced->new( $a,$b );
+  $set = Set::IntSpan::Island->new( $a,$b );
 
   # equivalent to $set->cardinality($another_set)->size;
   if ($set->overlap( $another_set )) { ... }
@@ -60,12 +60,13 @@ package Set::IntSpan::Island;
 use 5;
 use strict;
 use base qw(Exporter);
+use Data::Dumper;
 use Set::IntSpan 1.10;
 use Carp;
 
 our @ISA = qw(Set::IntSpan);
 our @EXPORT_OK = qw();
-our $VERSION = '0.02';
+our $VERSION = '0.03';
 
 =pod
 
@@ -312,20 +313,30 @@ If a cover contains no elements, then its entry is
 
 sub extract_covers {
   my ($self,$sets) = @_;
-  
-  my @sets = map { [ $_, $sets->{$_} ] } sort {$sets->{$a}->min <=> $sets->{$b}->min || $sets->{$a}->max <=> $sets->{$b}->max} keys (%$sets);
+
+  # decompose all input sets into spans
+  my @sets;
+  for my $id (keys %$sets) {
+    for my $span ($sets->{$id}->sets) {
+      push @sets,[$id,$span];
+    }
+  }
+  # order the spans by increasing min and increasing max
+  @sets = sort {$a->[1]->min <=> $b->[1]->min || $a->[1]->max <=> $b->[1]->max} @sets;
+  # register integers at which cover set membership may change - these are the
+  # integers at set boundaries
   my %edges;
-  use Data::Dumper;
-  for my $set (map {$_->[1]} @sets) {
-    map {$edges{$_}++} ( map { ($_->[0]-1,$_->[0],$_->[1],$_->[1]+1) } $set->spans );
+  for my $set (@sets) {
+    map {$edges{$_}++} ( map { ($_->[1]->min-1,$_->[1]->min,$_->[1]->max,$_->[1]->max+1) } $set );
   }
   my @edges = sort {$a <=> $b} keys %edges;
+  # first and last edge are not part of any set (min(leftmost)-1, max(rightmost)+1) - remove them
   splice(@edges,0,1);
   splice(@edges,-1,1);
   my $i = 0;
   my $j_low = 0;
   my $covers;
-  #print join(" ",@edges),"\n";
+  #print "edges ",join(" ",@edges),"\n";
   while($i < @edges) {
     my $edge      = $edges[$i];
     my $edge_next = $edges[$i+1];
@@ -346,7 +357,7 @@ sub extract_covers {
       my $ol  = $set->overlap($cover);
       if($ol) {
 	$found = 1;
-	#print "      ",$sets[$j][0],$set->run_list,"\n" if $ol;
+	#print "      ",$sets[$j][0]," ",$set->run_list,"\n" if $ol;
 	push @{$covers->[-1][1]}, $id;
       } else {
 	if($found) {
@@ -515,13 +526,15 @@ Martin Krzywinski <martink@bcgsc.ca>
 
 =item * Steve McDougall <swmcd@theworld.com> (C<Set::IntSpan>)
 
+=item * Adam Janin (testing)
+
 =head1 HISTORY
 
 =over
 
-=item v0.02 12 Mar 2007
+=item v0.03 10 April 2007
 
-Added iterator functions and updated documentation.
+Added iterator functions and updated documentation. More comprehensive extract_cover testing after bug in v0.01 was reported.
 
 =item v0.01 5 Mar 2007
 

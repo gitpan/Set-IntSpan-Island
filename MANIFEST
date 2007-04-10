@@ -17,6 +17,7 @@ t/distance.t
 t/overlap.t
 t/new.t
 examples/extract_cover
+examples/test_cover
 
 
 META.yml                                 Module meta-data (added by MakeMaker)
