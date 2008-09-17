@@ -1,6 +1,6 @@
 
 use strict;
-use Set::IntSpan::Island 0.01;
+use Set::IntSpan::Island 0.04;
 
 my $N = 1;
 sub Not { print "not " };

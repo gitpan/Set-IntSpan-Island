@@ -1,6 +1,6 @@
 
 use strict;
-use Set::IntSpan::Island 0.02;
+use Set::IntSpan::Island 0.04;
 
 my $N = 1;
 sub Not { print "not " };
@@ -50,6 +50,24 @@ my @sets = (
 		[12,12,"ac"],
 		[13,19,""],
 		[20,25,"c"],
+		],
+	      ],
+
+	    [ {
+		a=>"10-15,21-22",
+		b=>"12,25",
+		c=>"14-20",
+		d=>"25",
+		},
+	      [ 
+		[10,11,"a"],
+		[12,12,"ab"],
+		[13,13,"a"],
+		[14,15,"ac"],
+		[16,20,"c"],
+		[21,22,"a"],
+		[23,24,""],
+		[25,25,"bd"],
 		],
 	      ],
 
@@ -217,7 +235,7 @@ sub extract_covers_random {
     my $iterations = shift;
     print "#extract_covers_random\n";
 
-    my $num_sets       = 15;
+    my $num_sets       = 30;
     my $range          = Set::IntSpan::Island->new("1-200");
     my $num_covers     = 50;
     my $max_cover_size = 15;
@@ -230,6 +248,7 @@ sub extract_covers_random {
 	my $true_covers_by_id;
 	my $true_covers;
 	for my $c (1..$num_covers) {
+	    # construct a cover that does not overlap with existing coverage
 	    my $cstart = int(rand($range->max));
 	    my $cset = Set::IntSpan::Island->new($cstart,$cstart+int(rand($max_cover_size)));
 	    $cset = $cset->intersect($range);
@@ -237,15 +256,19 @@ sub extract_covers_random {
 	    last if $coverage->cardinality == $range->cardinality;
 	    redo if ! $cset->cardinality;
 	    redo if $cset->sets > 1;
+	    # add the cover to the coverage
 	    $coverage = $coverage->union($cset);
 	    my %ids;
+	    # generate random set names, up to 15 sets
 	    map { $ids{chr(97 + rand($num_sets))}++ } (1..int(1+rand($num_sets)));
+	    # add this cover to each of the random sets
 	    for my $id (keys %ids) {
 		$sets->{$id} ||= Set::IntSpan::Island->new();
 		$sets->{$id} = $sets->{$id}->union($cset);
 	    }
-	    #print $cset->run_list," ",keys %ids,"\n";
+	    # create a digest of set names that contain this cover
 	    my $id_digest = join("",sort keys %ids);
+	    # update the coverage set for this digest
 	    $true_covers_by_id->{$id_digest} ||= Set::IntSpan::Island->new();
 	    $true_covers_by_id->{$id_digest} = $true_covers_by_id->{$id_digest}->union($cset);
 	}

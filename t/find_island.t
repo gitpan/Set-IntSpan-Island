@@ -1,6 +1,6 @@
 
 use strict;
-use Set::IntSpan::Island 0.01;
+use Set::IntSpan::Island 0.04;
 
 my $N = 1;
 sub Not { print "not " };
@@ -14,11 +14,12 @@ my @sets = (
 	    ["1-5,7",7,"7"],
 	    ["1-5,8",7,"-"],
 	    ["1-8",7,"1-8"],
-
 	    ["1-8","7-8","1-8"],
 	    ["1-5,7-8","7-8","7-8"],
 	    ["1-5,8-9","7-8","8-9"],
 	    ["1-5,8-9,11-15","9-11","8-9,11-15"],
+	    ["1-5,8-9,11-15","16-20","-"],
+	    ["1-5,8-9,11-15","","-"],
 	    );
 
 print "1..",1*@sets,"\n";
@@ -29,7 +30,12 @@ sub find_islands {
     for my $setdata (@sets) {
 	my $set1 = Set::IntSpan::Island->new($setdata->[0]);
 	my $set2 = Set::IntSpan::Island->new($setdata->[2]);
-	my $island = $set1->find_islands($setdata->[1]);
+	my $island;
+	if($setdata->[1] =~ /[,-]/) {
+	    $island = $set1->find_islands(Set::IntSpan->new($setdata->[1]));
+	} else {
+	    $island = $set1->find_islands($setdata->[1]);
+	}
 	printf("#island %s -> %s\n",$island->run_list,$set2->run_list);
 	$island->run_list eq $set2->run_list || Not;
 	OK;

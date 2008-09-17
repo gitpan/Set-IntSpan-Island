@@ -1,13 +1,20 @@
 Set::IntSpan::Island - adds island, hole and cover functionality to Set::IntSpan
 
 DESCRIPTION
-Set::IntSpan manages sets of integers. This module adds the ability to manipulate
-holes and islands (called spans in Set::IntSpan).
 
-For example, given the following spans as identified
+Set::IntSpan manages sets of integers. This module adds the ability to
+manipulate islands, holes and covers. Here, island is the term for a
+contiguous component of a span. Spans are defined in Set::IntSpan.
 
-  a  10-15
-  b  12
+This module comes into its own when the data represented by your sets
+correspond to coordinates of coverage elements.
+
+One of the very useful features of Set::IntSpan::Island is the ability
+to generate a report of covers, given a list of sets. For example,
+given the following spans as identified
+
+  a  10-15,21-22
+  b  12,25
   c  14-20
   d  25
 
@@ -18,20 +25,23 @@ this module will provide you with all set covers and their members.
   13    a
   14-15 a c
   16-20 c
-  21-24 -
-  25    d
+  21-22 a
+  23-24 -
+  25    b d
 
 HOW TO BUILD AND INSTALL
+
 perl Makefile.PL
 make
 make test
 make install
 
 TODO
+
 Send suggestions, bugs, etc. to martink@bcgsc.ca
 
 COPYRIGHT
-Copyright (c) 2007 by Martin Krzywinski. This module is free
+
+Copyright (c) 2007-2008 by Martin Krzywinski. This module is free
 software; you can redistribute it and/or modify it under the same
 terms as Perl itself.
-

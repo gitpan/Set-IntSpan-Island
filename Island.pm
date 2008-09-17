@@ -3,7 +3,7 @@
 
 =head1 NAME
 
-Set::IntSpan::Island - extension for Set::IntSpan to handle islands and covers
+Set::IntSpan::Island - extension for Set::IntSpan to handle islands, holes and covers
 
 =head1 SYNOPSIS
 
@@ -11,29 +11,50 @@ Set::IntSpan::Island - extension for Set::IntSpan to handle islands and covers
 
   # inherits normal behaviour from Set::IntSpan
   $set = Set::IntSpan::Island->new( $set_spec );
-  # special two-value input creates a range a-b
+  # special pair input creates a span a-b
   $set = Set::IntSpan::Island->new( $a,$b );
 
   # equivalent to $set->cardinality($another_set)->size;
   if ($set->overlap( $another_set )) { ... }
 
-  # negative if overlap, positive if no overlap
+  # distance between spans is negative if spans overlap, positive if not
   $distance = $set->distance( $another_set );
 
-  # remove islands shorter than $minlength
-  $set = $set->remove_short( $minlength );
+  # remove islands whose size is smaller than $minsize
+  $new_set = $set->excise( $minsize );
 
-  # fill holes up to $maxholesize
-  $set = $set->fill( $maxholesize );
+  # remove islands whose size is found in the set $sizes_set,
+  $new_set = $set->excise( $sizes_set );
+  # all islands sized <= 10 removed
+  $new_set = $set->excise( Set::IntSpan( "(-10" ) );
+  # all islands sized >= 10 removed
+  $new_set = $set->excise( Set::IntSpan( "10-)" ) );
+  # all islands of size between 2-5 removed
+  $new_set = $set->excise( Set::IntSpan( "2-5" ) );
+
+  # remove islands larger than $maxlength
+  $set = $set->excise_large( $minlength );
+
+  # fill holes up to $maxsize
+  $set = $set->fill( $maxsize );
+
+  # fill holes whose size is found in the set $sizes_set
+  $set = $set->fill( $sizes_set);
+  # all holes sizes <= 10 filled
+  $set = $set->fill( Set::IntSpan( "(-10" ) );
+  # all holes sizes >= 10 filled
+  $set = $set->fill( Set::IntSpan( "10-)" ) );
+  # all holes sizes 2-5 filled
+  $set = $set->fill( Set::IntSpan( "2-5" ) );
 
   # return a set composed of islands of $set that overlap $another_set
   $set = $set->find_island( $another_set );
 
-  # return a set comopsed of the nearest non-overlapping island(s) to $another_set
+  # return a set composed of the nearest non-overlapping island(s) to $another_set
   $set = $set->nearest_island( $another_set );
 
   # construct a list of covers by exhaustively intersecting all sets
-  @covers = Set::IntSpan::Island->extract_cover( { id1=>$set1, id2=>set2, ... } );
+  @covers = Set::IntSpan::Island->extract_covers( { id1=>$set1, id2=>set2, ... } );
   for $cover (@covers) {
     ($coverset,@ids) = ($cover->[0], @{$cover->[1]});
     print "cover",$coverset->run_list,"contains sets",join(",",@ids);
@@ -41,15 +62,21 @@ Set::IntSpan::Island - extension for Set::IntSpan to handle islands and covers
 
 =head1 DESCRIPTION
 
-This module extends the C<Set::IntSpan> module by Steve McDougall. It implementing methods that are specific to islands and covers. C<Set::IntSpan::Island> inherits from Set::IntSpan.
+This module extends the C<Set::IntSpan> module by Steve McDougall. It
+implementing methods that are specific to islands, holes and
+covers. C<Set::IntSpan::Island> inherits from Set::IntSpan.
 
 =head2 Terminology
 
-An integer set, as represented by C<Set::IntSpan>, is a collection of islands (or spans) on the integer line
+An integer set, as represented by C<Set::IntSpan>, is a collection of
+islands (or spans) on the integer line
 
   ...-----xxxx----xxxxxxxx---xxxxxxxx---xx---x----....
 
-Islands are disjoint and contiguous, by definition, and may be represented by their own C<Set::IntSpan> object. Regions not in the set that fall between adjacent spans are termed holes. For example, the integer set above is composed of 5 islands and 4 holes. The two infinite regions on either side of the set are not counted as holes within the context of this module.
+Holes are regions not in the set that fall between adjacent spans. For
+example, the integer set above is composed of 5 islands and 4
+holes. The two infinite regions on either side of the set are not
+counted as holes within the context of this module.
 
 =head1 METHODS
 
@@ -66,7 +93,7 @@ use Carp;
 
 our @ISA = qw(Set::IntSpan);
 our @EXPORT_OK = qw();
-our $VERSION = '0.03';
+our $VERSION = '0.04';
 
 =pod
 
@@ -76,11 +103,16 @@ Constructs a set using the set specification as supported by C<Set::IntSpan>.
 
 =head2 $set = Set::IntSpan::Island->new( $a, $b )
 
-Extension to C<Set::IntSpan> C<new> method, this double-argument version creates a set formed by the range a-b. This is equivalent to
+Extension to C<Set::IntSpan> C<new> method, this double-argument
+version creates a set formed by the range a-b. This is equivalent to
 
   $set = Set::IntSpan::Island->new("$a-$b")
 
-but permits initialization from a list instead of a string.
+but permits initialization from a list instead of a string. The
+arguments $a and $b are expected to be integers - any decimal
+component will be truncated.
+
+  new(1.2,2.9) equivalent to new(1,2)
 
 =cut 
 
@@ -92,8 +124,13 @@ sub new {
     # relegate to parent
     $self = $class->SUPER::new(@args);
   } elsif (@args==2) {
-    # treat as cover
-    $self = $class->SUPER::new(sprintf("%d-%d",@args));
+    # treat as request to create span x-y
+    my ($x,$y) = map {int($_)} @args;
+    if($x == $y) {
+      $self = $class->SUPER::new($x);
+    } else {
+      $self = $class->SUPER::new("$x-$y");
+    }
   } else {
     croak "Set::IntSpan::Island: cannot create object using more than two integers [@args]"; 
   }
@@ -104,7 +141,7 @@ sub new {
 
 =head2 $set_copy = $set->duplicate()
 
-Creates a copy of $set.
+Creates a copy of C<$set>.
 
 =cut
 
@@ -132,17 +169,48 @@ sub overlap {
 
 =head2 $d = $set->distance( $another_set )
 
-Returns the distance between sets, measured as follows. If the sets overlap, then the distance is negative and given by
+Returns the distance between sets, measured as follows. If the sets
+overlap, then the distance is negative and given by
 
   $d = - $set->overlap( $another_set )
 
-If the sets do not overlap, $d is positive and given by the distance on the integer line between the two closest islands of the sets.
+If the sets do not overlap, $d is positive and is given as
+1+size(hole), where the hole is the one between two closest islands of
+the sets. Therefore, if the sets do not overlap, but their closest
+spans abut, the distance is one (i.e. the distance is never zero).
+
+Returns C<undef> if C<$another_set> is not defined, or either C<$set> or C<$another_set> is empty.
+
+   A ----xxxx---xxx-----xx--
+   B ------xxx------xx--x---
+           !!           !    d=3 
+
+   A ----xxxx---xxx-----xx--
+   B ----xxxx---xxx---------
+         !!!!   !!!          d=7
+
+   A ----xxxx---xxx-----xx--
+   B --------------x--------
+                  ><         d=1
+
+   A ----xxxx---xxx-----xx--
+   B ---------------x-------
+                  > <        d=2
+
+   A ----xxxx---xxx-----xx--
+   B ---------------xx------
+                  > <        d=2
+
+   A ----xxxx---xxx-----xx--
+   B ---------------xxxx----
+                       ><    d=1
 
 =cut
 
 sub distance {
   my ($set1,$set2) = @_;
   return undef unless $set1 && $set2;
+  return undef unless $set1->cardinality && $set2->cardinality;
   my $overlap = $set1->overlap($set2);
   my $min_d;
   if($overlap) {
@@ -170,94 +238,204 @@ Returns all spans in $set as C<Set::IntSpan::Island> objects. This method overri
 
 sub sets {
   my $set = shift;
-  return map { $set->new($_)->cover } $set->spans;
+  return map { $set->new($_->run_list) } $set->SUPER::sets();
 }
 
-=head2 $set = $set->excise( $minlength )
+=head2 $new_set = $set->excise( $minlength | $size_set )
 
-Removes all islands within $set smaller than $minlength.
+If passed an integer C<$minlength>, removes all islands smaller than
+C<$minlength>. The smallest practical value for C<$minlength> is 2.
+
+If passed a set C<$size_set>, removes all islands whose size is found
+in C<$size_set>. This extended functionality allows you to pass in
+arbitrary size cutoffs. For example, to remove islands of size <=10
+
+  $new_set = $set->excise( Set::IntSpan->( "(-10" ) )
+
+or to remove islands of size 2-10
+
+  $new_set = $set->excise( Set::IntSpan->( "2-10" ) )
+
+Returns an empty set if all islands are excised.
+
+Contrast C<excise()> to C<keep()>. Use C<excise()> when you have a set of
+island sizes you want to remove. Use C<keep()> when you have a set of
+island sizes you want to keep. In other words, these are equivalent:
+
+  $set->excise( $size_set )
+  $set->keep( $size_set->complement )
+  
 
 =cut
 
 sub excise {
-  my ($self,$minlength) = @_;
+  my ($self,$length) = @_;
+  if(! ref($length) ) {
+    my $set = $self->new();
+    map { $set = $set->union($_) } grep($_->size >= $length, $self->sets);
+    return $set;
+  } elsif ($length->can("member")) {
+    my $set = $self->new();
+    map { $set = $set->union($_) } grep(! $length->member($_->size), $self->sets);
+    return $set;
+  } else {
+    croak "excise does not accept a length cutoff of the type you used",ref($length);
+  }
+}
+
+=head2 $new_set = $set->keep( $maxlength | $size_set )
+
+If passed an integer C<$maxlength>, removes all islands larger than
+C<$maxlength>. 
+
+If passed a set C<$size_set>, removes all islands whose size is not found
+in C<$size_set>. For example, keep all islands sized >= 10.
+
+  $new_set = $set->keep( Set::IntSpan->( "10-)" ) )
+
+or keep all islands sized 2-10
+
+  $new_set = $set->excise( Set::IntSpan->( "2-10" ) )
+
+Returns an empty set if no islands are kept.
+
+Contrast C<keep()> to C<excise()>. Use C<keep()> when you have a set of island
+sizes you want to keep. Use C<excise()> when you have a set of island
+sizes you want to remove. In other words, these are equivalent:
+
+  $set->keep( $size_set )
+  $set->excise( $size_set->complement )
+
+=cut
+
+sub keep {
+  my ($self,$length) = @_;
   my $set = $self->new();
-  map { $set = $set->union($_) } grep($_->size >= $minlength, $self->sets);
+  if(! ref($length) ) {
+    map { $set = $set->union($_) } grep($_->size <= $length, $self->sets);
+  } elsif ($length->can("member")) {
+    map { $set = $set->union($_) } grep($length->member($_->size), $self->sets);
+  } else {
+    croak "keep does not accept a length cutoff of the type you used",ref($length);
+  }
   return $set;
 }
 
-=head2 $set = $set->fill( $maxlength )
+=head2 $set = $set->fill( $maxsize | $size_set )
 
-Fills in all holes in $set smaller than $maxlength.
+If passed an integer C<$maxsize>, fills in all holes in $set smaller than C<$maxsize>.
+
+If passed a set C<$size_set>, fills in all holes whose size appears in C<$size_set>.
 
 =cut
 
 sub fill {
-  my ($self,$maxfill) = @_;
+  my ($self,$length) = @_;
   my $set = $self->duplicate();
-  if($maxfill > 0) {
+  if(! ref($length)) {
     for my $hole ( $set->holes->sets ) {
-      if($hole->size <= $maxfill) {
+      if($hole->size <= $length) {
 	$set = $set->union($hole);
       }
     }
+  } elsif ($length->can("member")) {
+    for my $hole ( $set->holes->sets ) {
+      if($length->member($hole->size)) {
+	$set = $set->union($hole);
+      }
+    }
+  } else {
+    croak "fill does not accept a length cutoff of the type you used",ref($length);
   }
   return $set;
 }
 
-=head2 $set = $set->find_islands( $integer )
+=head2 $island_set = $set->find_islands( $integer | $another_set )
 
-Returns a set containing the island in $set containing C<$integer>. If C<$integer> is not in C<$set>, an empty set is returned.
+Returns a set composed of islands from $set that overlap with C<$integer> or C<$another_set>.
 
-=head2 $set = $set->find_islands( $another_set )
+If an integer is passed and C<$integer> is not in C<$set>, an empty set is returned.
 
-Returns a set containing all islands in $set intersecting C<$another_set>. If C<$set> and C<$another_set> have an empty intersection, an empty set is returned. 
+If a set is passed and C<$set> and C<$another_set> have an empty intersection, an empty set is returned. 
+
+   another_set ------------x----------
+           set ----xxxx---xxx-----xx--
+    island_set -----------xxx---------
+
+   another_set ------------xxxxx------
+           set ----xxxx---xxx-----xx--
+    island_set -----------xxx---------
+
+   another_set ------------xxxxx---xx-
+           set ----xxxx---xxx-----xx--
+    island_set -----------xxx-----xx--
+
+Contrast this to nearest_island() which returns the closest island(s) that
+do not overlap with C<$integer> or C<$another_set>.
 
 =cut
 
 sub find_islands {
-  my ($self,$member) = @_;
-  if(ref($member) eq ref($self)) {
-    # 
-  } elsif (! ref($member)) {
-    $member = $self->new($member);
+  my ($self,$anchor) = @_;
+  return $self->new() if ! $anchor;
+  if(! ref($anchor)) {
+    for my $set ($self->sets) {
+      return $set if $set->member($anchor);
+    }
+    return $self->new();
+  } elsif ($anchor->can("intersect")) {
+    my $islands = $self->new;
+    return $islands if ! $self->overlap($anchor);
+    for my $set ($self->sets) {
+      $islands->U($set) if $set->overlap($anchor);
+    }
+    return $islands;
   } else {
-    croak "Set::IntSpan::Island: don't know how to deal with input to find_island";
+    croak "find_islands does not accept an argument of the type you used",ref($anchor);
   }
-  print ref($self),ref($member),"\n";
-  my $islands = $self->new;
-  return $islands if ! $self->overlap($member);
-  for my $set ($self->sets) {
-    $islands = $islands->union($set) if $set->overlap($member);
-  }
-  return $islands;
 }
 
 =pod 
 
-=head2 $set = $set->nearest_island( $integer )
+=head2 $island_set = $set->nearest_island( $integer | $another_set)
 
-Returns the nearest island(s) in C<$set> that contains, but does not overlap with, C<$integer>. If C<$integer> lies exactly between two islands, then the returned set contains these two islands.
+Returns the island(s) in C<$set> closest (but not overlapping) to
+C<$integer> or C<$another_set>. If C<$integer> or C<$another_set> lie
+exactly between two islands, then the returned set contains these two
+islands.
 
-=head2 $set = $set->nearest_island( $another_set );
+If no non-overlapping islands in $set are found, an empty set is returned.
 
-Returns the nearest island(s) in C<$set> that intersects, but does not overlap with, C<$another_set>. If C<$another_set> lies exactly between two islands, then the returned set contains these two islands.
+   another_set ------------x----------
+           set ----xxxx---xxx-----xx--
+    island_set ----xxxx---------------
+
+   another_set ------------xxxxx------
+           set ----xxxx---xxx-----xx--
+    island_set -------------------xx--
+
+   another_set ----------xxxxxxx------
+           set ----xxxx---xxx-----xx--
+    island_set ----xxxx-----------xx--
+
+Contrast this to C<find_islands()> which returns the island(s) that
+overlap with C<$integer> or C<$another_set>.
 
 =cut
 
 sub nearest_island {
-  my ($self,$member) = @_;
-  if(ref($member) eq ref($self)) {
-    # 
-  } elsif (! ref($member)) {
-    $member = $self->new($member);
+  my ($self,$anchor) = @_;
+  if(! ref($anchor)) {
+    $anchor = $self->new($anchor);
+  } elsif ($anchor->can("sets")) {
+    # same type of object
   } else {
-    croak "Set::IntSpan::Island: don't know how to deal with input to nearest_island";
+    croak "nearest_island does not accept an argument of the type you used",ref($anchor);
   }
   my $island = $self->new();
   my $min_d;
   for my $s ($self->sets) {
-    for my $ss ($member->sets) {
+    for my $ss ($anchor->sets) {
       next if $s->overlap($ss);
       my $d = $s->distance($ss);
       if(! defined $min_d || $d <= $min_d) {
@@ -281,12 +459,15 @@ Given a C<$set_hash> reference
 
   { id1=>$set1, id2=>$set2, ..., idn=>$setn}
 
-where $setj is a finite Set::IntSpan::Island object and idj is a unique key, C<extract_covers> performs an exhaustive intersection of all sets and returns a list of all covers and set memberships. For example, given the id/runlist combination
- 
-  a  10-15
-  b  12
-  c  14-20
-  d  25
+where C<$setj> is a finite C<Set::IntSpan::Island> object and C<idN>
+is a unique key, C<extract_covers> performs an exhaustive intersection
+of all sets and returns a list of all covers and set memberships. For
+example, given the id/runlist combination 
+
+  a 10-15 
+  b 12 
+  c 14-20 
+  d 25
 
 The covers are
 
@@ -314,9 +495,14 @@ If a cover contains no elements, then its entry is
 sub extract_covers {
   my ($self,$sets) = @_;
 
+  if(! $sets || ref($sets) ne "HASH") {
+    return [];
+  }
+
   # decompose all input sets into spans
   my @sets;
   for my $id (keys %$sets) {
+    croak "value in hash is not a set object" unless $sets->{$id}->can("sets");
     for my $span ($sets->{$id}->sets) {
       push @sets,[$id,$span];
     }
@@ -394,7 +580,7 @@ sub num_islands {
 
 Returns the island indexed by $island_index. Islands are 0-indexed. For a set with N islands, the first island (ordered left-to-right) has index 0 and the last island has index N-1.
 
-If $island_index is negative, counting is done back from the last island (c.f. negative indexes of Perl arrays).
+If $island_index is negative, counting is done back from the last island.
 
 =cut
 
@@ -408,7 +594,8 @@ sub at_island {
 
 =head2 $island = $set->first_island
 
-Returns the first island of the set as a Set::IntSpan::Island object. As a side-effect, sets the iterator to the first island.
+Returns the first island of the set. As a side-effect, sets the
+iterator to the first island.
 
 If the set is empty, returns undef.
 
@@ -429,7 +616,8 @@ sub first_island {
 
 =head2 $island = $set->last_island
 
-Returns the last island of the set as a Set::IntSpan::Island object. As a side-effect, sets the iterator to the last island.
+Returns the last island of the set. As a side-effect, sets the
+iterator to the last island.
 
 If the set is empty, returns undef.
 
@@ -450,7 +638,8 @@ sub last_island {
 
 =head2 $island = $set->next_island
 
-Advances the iterator forward by one island, and returns the next island. If the iterator is undefined (e.g. not previously set by first()), the first island is returned.
+Advances the iterator forward by one island, and returns the next
+island. If the iterator is undefined, the first island is returned.
 
 Returns undef if the set is empty or if no more islands are available.
 
@@ -458,6 +647,7 @@ Returns undef if the set is empty or if no more islands are available.
 
 sub next_island {
   my $self = shift;
+
   if($self->cardinality) {
     $self->{iterator} = defined $self->{iterator} ? ++$self->{iterator} : 0;
     my $next = $self->at_island( $self->{iterator} );
@@ -477,7 +667,8 @@ sub next_island {
 
 =head2 $island = $set->prev_island
 
-Reverses the iterator backward by one island, and returns the previous island. If the iterator is undefined (e.g. not previously set by last()), the last island is returned.
+Reverses the iterator backward by one island, and returns the previous
+island. If the iterator is undefined, the last island is returned.
 
 Returns undef if the set is empty or if no more islands are available.
 
@@ -532,13 +723,21 @@ Martin Krzywinski <martink@bcgsc.ca>
 
 =over
 
+=item v0.04 17 Sep 2008
+
+Modified excise(), distance() and fill(). Added keep().
+
 =item v0.03 10 April 2007
 
-Added iterator functions and updated documentation. More comprehensive extract_cover testing after bug in v0.01 was reported.
+More comprehensive extract_cover testing after bug in v0.01 was reported.
+
+=item v0.02 12 Mar 2007
+
+Added island iterator.
 
 =item v0.01 5 Mar 2007
 
-First release.
+Release.
 
 =back
 

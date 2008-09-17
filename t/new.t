@@ -1,18 +1,22 @@
 
 use strict;
-use Set::IntSpan::Island 0.01;
+use Set::IntSpan::Island 0.04;
 
 my $N = 1;
 sub Not { print "not " };
 sub OK { print "ok ", $N++, "\n" };
 
 my @runlists = (
+		[[0],"0"],
 		[[1],"1"],
+		[[0,0],"0"],
+		[[1,1],"1"],
 		[[1,2],"1-2"],
 		[[1,3],"1-3"]
 		);
 
 print "1..",2*@runlists,"\n";
+
 new();
 duplicate();
 

@@ -1,6 +1,6 @@
 
 use strict;
-use Set::IntSpan::Island 0.01;
+use Set::IntSpan::Island 0.04;
 
 my $N = 1;
 sub Not { print "not " };
@@ -14,7 +14,10 @@ my @sets = (
 	    ["1-5,9-10",2,"1-5,9-10"],
 	    ["1-5,9-10",3,"1-10"],
 	    ["1-5,9-10,12-13,15",2,"1-5,9-15"],
+	    ["1-5,9-10,12-13,15","1-2","1-5,9-15"],
 	    ["1-5,9-10,12-13,15",3,"1-15"],
+	    ["1-5,9-10,12,15,18,21","2-3","1-10,12-21"],
+	    ["1-5,9-10,12,15,18,21","(-)","1-21"],
 	    );
 
 print "1..",1*@sets,"\n";
@@ -25,7 +28,12 @@ sub fill {
     for my $setdata (@sets) {
 	my $set1 = Set::IntSpan::Island->new($setdata->[0]);
 	my $set2 = Set::IntSpan::Island->new($setdata->[2]);
-	my $set3 = $set1->fill($setdata->[1]);
+	my $set3;
+	if($setdata->[1] =~ /[,-]/) {
+	    $set3 = $set1->fill(Set::IntSpan->new($setdata->[1]));
+	} else {
+	    $set3 = $set1->fill($setdata->[1]);
+	}
 	printf("#fill %s -> %s\n",$set3->run_list,$set2->run_list);
 	$set3->run_list eq $set2->run_list || Not;
 	OK;
