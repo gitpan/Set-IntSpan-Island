@@ -93,7 +93,7 @@ use Carp;
 
 our @ISA = qw(Set::IntSpan);
 our @EXPORT_OK = qw();
-our $VERSION = '0.04';
+our $VERSION = '0.05';
 
 =pod
 
