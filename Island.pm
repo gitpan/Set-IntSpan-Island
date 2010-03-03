@@ -7,7 +7,7 @@ Set::IntSpan::Island - extension for Set::IntSpan to handle islands, holes and c
 
 =head1 SYNOPSIS
 
-  use Set::IntSpan::Island
+  use Set::IntSpan::Island;
 
   # inherits normal behaviour from Set::IntSpan
   $set = Set::IntSpan::Island->new( $set_spec );
@@ -69,7 +69,7 @@ covers. C<Set::IntSpan::Island> inherits from Set::IntSpan.
 =head2 Terminology
 
 An integer set, as represented by C<Set::IntSpan>, is a collection of
-islands (or spans) on the integer line
+islands (or spans) on the number line
 
   ...-----xxxx----xxxxxxxx---xxxxxxxx---xx---x----....
 
@@ -86,14 +86,18 @@ package Set::IntSpan::Island;
 
 use 5;
 use strict;
-use base qw(Exporter);
-use Data::Dumper;
-use Set::IntSpan 1.10;
+use warnings FATAL=>"all";
+
+use parent qw(Exporter);
+use parent qw(Set::IntSpan);
+
+our @EXPORT    = qw();
+our @EXPORT_OK = qw();
+
+use Set::IntSpan 1.13;
 use Carp;
 
-our @ISA = qw(Set::IntSpan);
-our @EXPORT_OK = qw();
-our $VERSION = '0.05';
+our $VERSION = '0.10';
 
 =pod
 
@@ -132,16 +136,20 @@ sub new {
       $self = $class->SUPER::new("$x-$y");
     }
   } else {
-    croak "Set::IntSpan::Island: cannot create object using more than two integers [@args]"; 
+    confess "Set::IntSpan::Island: cannot create object using more than two integers [@args]"; 
   }
   return $self;
 }
 
 =pod
 
+=head2 $set_copy = $set->clone()
+
+Creates a copy of C<$set>. Also accessible using C<$set->duplicate()>;
+
 =head2 $set_copy = $set->duplicate()
 
-Creates a copy of C<$set>.
+Same as C<clone()>.
 
 =cut
 
@@ -150,13 +158,20 @@ sub duplicate {
   return $self->new($self->run_list);
 }
 
+sub clone {
+  my $self = shift;
+  return $self->new($self->run_list);
+}
+
 =pod
 
-=head2 $overlap_amount = $set->overlap( $another_set );
+=head2 $olap = $set->overlap( $another_set );
 
 Returns the size of intersection of two sets. Equivalent to
 
   $set->intersect( $another_set )->size;
+
+The returned value is either 0 (if the sets do not overlap) or positive (if they do).
 
 =cut
 
@@ -172,22 +187,27 @@ sub overlap {
 Returns the distance between sets, measured as follows. If the sets
 overlap, then the distance is negative and given by
 
-  $d = - $set->overlap( $another_set )
+  $d = -$set->overlap( $another_set )
 
-If the sets do not overlap, $d is positive and is given as
-1+size(hole), where the hole is the one between two closest islands of
-the sets. Therefore, if the sets do not overlap, but their closest
-spans abut, the distance is one (i.e. the distance is never zero).
+If the sets abut, C<$d> is 1. Here $d can be interpreted as the
+difference between the closest edges of the two sets.
 
-Returns C<undef> if C<$another_set> is not defined, or either C<$set> or C<$another_set> is empty.
+The above generalizes to 1+size(hole) if the sets do not overlap and
+are composed of multiple islands. The hole used is the one between two
+closest islands of the sets.
+  
+Returns C<undef> if C<$another_set> is not defined, or either C<$set>
+or C<$another_set> is empty.
+
+Here are some examples of how the distance is calculated.
 
    A ----xxxx---xxx-----xx--
    B ------xxx------xx--x---
-           !!           !    d=3 
+           !!           !    d=-3
 
    A ----xxxx---xxx-----xx--
    B ----xxxx---xxx---------
-         !!!!   !!!          d=7
+         !!!!   !!!          d=-7
 
    A ----xxxx---xxx-----xx--
    B --------------x--------
@@ -212,10 +232,10 @@ sub distance {
   return undef unless $set1 && $set2;
   return undef unless $set1->cardinality && $set2->cardinality;
   my $overlap = $set1->overlap($set2);
-  my $min_d;
   if($overlap) {
     return -$overlap;
   } else {
+    my $min_d;
     for my $span1 ($set1->sets) {
       for my $span2 ($set2->sets) {
 	my $d1 = abs($span1->min - $span2->max);
@@ -226,8 +246,8 @@ sub distance {
 	}
       }
     }
+    return $min_d;
   }
-  return $min_d;
 }
 
 =head2 $d = $set->sets()
@@ -243,8 +263,10 @@ sub sets {
 
 =head2 $new_set = $set->excise( $minlength | $size_set )
 
-If passed an integer C<$minlength>, removes all islands smaller than
-C<$minlength>. The smallest practical value for C<$minlength> is 2.
+Removes all islands smaller than C<$minlength>. If C<$minlength> < 1
+then no elements are removed and a copy of the set is returned. Since
+only islands smaller than C<$minlength> are removed, the smallest
+useful value for C<$minlength> is 2.
 
 If passed a set C<$size_set>, removes all islands whose size is found
 in C<$size_set>. This extended functionality allows you to pass in
@@ -256,7 +278,19 @@ or to remove islands of size 2-10
 
   $new_set = $set->excise( Set::IntSpan->( "2-10" ) )
 
-Returns an empty set if all islands are excised.
+Since size of an island must be non-zero and positive, any negative
+elements in the size set will be ignored. The two are therefore equivalent
+
+  $new_set = $set->excise( Set::IntSpan->( "2-10" ) )
+  $new_set = $set->excise( Set::IntSpan->( "(--1,2-10" ) )
+
+Using a size set allows you to excise islands larger than a certain
+size. For example, to remove all islands 10 or bigger,
+
+  $new_set = $set->excise( Set::IntSpan->( "10-)" ) )
+
+Regardless of input, if all islands are excised (i.e. all elements
+from $set are removed), this function will return an empty set.
 
 Contrast C<excise()> to C<keep()>. Use C<excise()> when you have a set of
 island sizes you want to remove. Use C<keep()> when you have a set of
@@ -264,7 +298,22 @@ island sizes you want to keep. In other words, these are equivalent:
 
   $set->excise( $size_set )
   $set->keep( $size_set->complement )
-  
+
+Strictly speaking, you can pass in any object as a size limiter, as
+long as it implements a C<member()> function which returns 1 if the
+size is in the cutoff set and 0 otherwise.
+
+  $filter = Some::Other::Module->new();
+  # set $filter parameters according to Some::Other::Module API...
+  ...
+  # $filter must implement "member" function
+  $filter->can("member")
+  if($filter->member(10)) {
+    print "islands of size 10 will be removed";
+  } else {
+    print "islands of size 10 will be kept";
+  }
+  $set->excise($filter);
 
 =cut
 
@@ -279,7 +328,7 @@ sub excise {
     map { $set = $set->union($_) } grep(! $length->member($_->size), $self->sets);
     return $set;
   } else {
-    croak "excise does not accept a length cutoff of the type you used",ref($length);
+    confess "excise() does not accept a length cutoff of the type you used",ref($length);
   }
 }
 
@@ -289,7 +338,7 @@ If passed an integer C<$maxlength>, removes all islands larger than
 C<$maxlength>. 
 
 If passed a set C<$size_set>, removes all islands whose size is not found
-in C<$size_set>. For example, keep all islands sized >= 10.
+in C<$size_set>. For example, to keep all islands sized 10 or larger,
 
   $new_set = $set->keep( Set::IntSpan->( "10-)" ) )
 
@@ -299,12 +348,22 @@ or keep all islands sized 2-10
 
 Returns an empty set if no islands are kept.
 
+Since size of an island must be non-zero and positive, any negative
+elements in the size set will be ignored. The two are therefore equivalent
+
+  $new_set = $set->keep( Set::IntSpan->( "2-10" ) )
+  $new_set = $set->keep( Set::IntSpan->( "(--1,2-10" ) )
+
 Contrast C<keep()> to C<excise()>. Use C<keep()> when you have a set of island
 sizes you want to keep. Use C<excise()> when you have a set of island
 sizes you want to remove. In other words, these are equivalent:
 
   $set->keep( $size_set )
   $set->excise( $size_set->complement )
+
+Strictly speaking, you can pass in any object as a size limiter, as
+long as it implements a C<member()> function which returns 1 if the
+size is in the cutoff set and 0 otherwise. See the description of C<excise()> for details.
 
 =cut
 
@@ -316,7 +375,7 @@ sub keep {
   } elsif ($length->can("member")) {
     map { $set = $set->union($_) } grep($length->member($_->size), $self->sets);
   } else {
-    croak "keep does not accept a length cutoff of the type you used",ref($length);
+    confess "keep() does not accept a length cutoff of the type you used",ref($length);
   }
   return $set;
 }
@@ -326,6 +385,10 @@ sub keep {
 If passed an integer C<$maxsize>, fills in all holes in $set smaller than C<$maxsize>.
 
 If passed a set C<$size_set>, fills in all holes whose size appears in C<$size_set>.
+
+Strictly speaking, you can pass in any object as a size limiter, as
+long as it implements a C<member()> function which returns 1 if the
+size is in the cutoff set and 0 otherwise. See the description of C<excise()> for details.
 
 =cut
 
@@ -345,7 +408,7 @@ sub fill {
       }
     }
   } else {
-    croak "fill does not accept a length cutoff of the type you used",ref($length);
+    confess "fill() does not accept a length cutoff of the type you used",ref($length);
   }
   return $set;
 }
@@ -358,16 +421,16 @@ If an integer is passed and C<$integer> is not in C<$set>, an empty set is retur
 
 If a set is passed and C<$set> and C<$another_set> have an empty intersection, an empty set is returned. 
 
+           set ----xxxx---xxx-----xx--
    another_set ------------x----------
-           set ----xxxx---xxx-----xx--
     island_set -----------xxx---------
 
+           set ----xxxx---xxx-----xx--
    another_set ------------xxxxx------
-           set ----xxxx---xxx-----xx--
     island_set -----------xxx---------
 
-   another_set ------------xxxxx---xx-
            set ----xxxx---xxx-----xx--
+   another_set ------------xxxxx---xx-
     island_set -----------xxx-----xx--
 
 Contrast this to nearest_island() which returns the closest island(s) that
@@ -391,7 +454,7 @@ sub find_islands {
     }
     return $islands;
   } else {
-    croak "find_islands does not accept an argument of the type you used",ref($anchor);
+    confess "find_islands does not accept an argument of the type you used",ref($anchor);
   }
 }
 
@@ -406,17 +469,24 @@ islands.
 
 If no non-overlapping islands in $set are found, an empty set is returned.
 
-   another_set ------------x----------
            set ----xxxx---xxx-----xx--
+   another_set ------------x----------
     island_set ----xxxx---------------
 
-   another_set ------------xxxxx------
            set ----xxxx---xxx-----xx--
+   another_set ------------xxxxx------
     island_set -------------------xx--
 
-   another_set ----------xxxxxxx------
            set ----xxxx---xxx-----xx--
+   another_set ----------xxxxxxx------
     island_set ----xxxx-----------xx--
+
+If $another_set contains multiple islands, such as below, $island_set
+may also contain multiple islands.
+
+           set ----xxxx---xxx-----xx--
+   another_set ---x----xxx------------
+    island_set ----xxxx---xxx---------
 
 Contrast this to C<find_islands()> which returns the island(s) that
 overlap with C<$integer> or C<$another_set>.
@@ -430,7 +500,7 @@ sub nearest_island {
   } elsif ($anchor->can("sets")) {
     # same type of object
   } else {
-    croak "nearest_island does not accept an argument of the type you used",ref($anchor);
+    confess "nearest_island does not accept an argument of the type you used",ref($anchor);
   }
   my $island = $self->new();
   my $min_d;
@@ -449,6 +519,153 @@ sub nearest_island {
     }
   }
   return $island;
+}
+
+=pod
+
+=head2 $num_islands = $set->num_islands()
+
+Returns the number of islands in the set. If the set is empty, 0 is returned.
+
+=cut 
+
+sub num_islands {
+  my $self = shift;
+  return scalar $self->spans;
+}
+
+=head2 $island = $set->at_island( $island_index )
+
+Returns the island indexed by $island_index. Islands are
+0-indexed. For a set with N islands, the first island (ordered
+left-to-right) has index 0 and the last island has index N-1.
+
+If $island_index is negative, counting is done back from the last
+island.
+
+If $island_index is beyond the last island, undef is returned.
+
+=cut
+
+sub at_island {
+  my ($self,$n) = @_;
+  my @islands = $self->sets;
+  return defined $n && defined $islands[$n] ? $islands[$n] : undef;
+}
+
+=pod
+
+=head2 $island = $set->first_island()
+
+Returns the first island of the set. As a side-effect, sets the
+iterator to the first island.
+
+If the set is empty, returns undef.
+
+=cut
+
+sub first_island {
+  my $self = shift;
+  if($self->cardinality) {
+    $self->{iterator} = 0;
+    return $self->at_island( $self->{iterator} );
+  } else {
+    $self->{iterator} = undef;
+    return undef;
+  }
+}
+
+=pod
+
+=head2 $island = $set->last_island()
+
+Returns the last island of the set. As a side-effect, sets the
+iterator to the last island.
+
+If the set is empty, returns undef.
+
+=cut
+
+sub last_island {
+  my $self = shift;
+  if($self->cardinality) {
+    $self->{iterator} = $self->num_islands - 1;
+    return $self->at_island( $self->{iterator} );
+  } else {
+    $self->{iterator} = undef;
+    return undef;
+  }
+}
+
+=pod
+
+=head2 $island = $set->next_island()
+
+Advances the iterator forward by one island, and returns the next
+island. If the iterator is undefined, the first island is returned.
+
+Returns undef if the set is empty or if no more islands are available.
+
+=cut
+
+sub next_island {
+  my $self = shift;
+
+  if($self->cardinality) {
+    $self->{iterator} = defined $self->{iterator} ? ++$self->{iterator} : 0;
+    my $next = $self->at_island( $self->{iterator} );
+    if($next) {
+      return $next;
+    } else {
+      $self->{iterator} = undef;
+      return undef;
+    }
+  } else {
+    $self->{iterator} = undef;
+    return undef;
+  }
+}
+
+=pod
+
+=head2 $island = $set->prev_island()
+
+Reverses the iterator backward by one island, and returns the previous
+island. If the iterator is undefined, the last island is returned.
+
+Returns undef if the set is empty or if no more islands are available.
+
+=cut
+
+sub prev_island {
+  my $self = shift;
+  if($self->cardinality) {
+    $self->{iterator} = defined $self->{iterator} ? --$self->{iterator} : $self->num_islands - 1;
+    if($self->{iterator} >= 0) {
+      return $self->at_island( $self->{iterator} );
+    } else {
+      $self->{iterator} = undef;
+      return undef;
+    }
+  } else {
+    $self->{iterator} = undef;
+    return undef;
+  }
+}
+
+=pod
+
+=head2 $island = $set->current_island()
+
+Returns the island at the current iterator position.
+
+Returns undef if the set is empty or if the iterator is not defined.
+
+=cut
+
+sub current_island {
+  my $self = shift;
+  return $self->at_island( $self->{iterator} );
 }
 
 =pod
@@ -502,7 +719,7 @@ sub extract_covers {
   # decompose all input sets into spans
   my @sets;
   for my $id (keys %$sets) {
-    croak "value in hash is not a set object" unless $sets->{$id}->can("sets");
+    confess "value in hash is not a set object" unless $sets->{$id}->can("sets");
     for my $span ($sets->{$id}->sets) {
       push @sets,[$id,$span];
     }
@@ -563,148 +780,6 @@ sub extract_covers {
   return $covers;
 }
 
-=pod
-
-=head2 $island = $set->num_islands
-
-Returns the number of islands in the set.
-
-=cut 
-
-sub num_islands {
-  my $self = shift;
-  return scalar $self->spans;
-}
-
-=head2 $island = $set->at_island( $island_index )
-
-Returns the island indexed by $island_index. Islands are 0-indexed. For a set with N islands, the first island (ordered left-to-right) has index 0 and the last island has index N-1.
-
-If $island_index is negative, counting is done back from the last island.
-
-=cut
-
-sub at_island {
-  my ($self,$n) = @_;
-  my @islands = $self->sets;
-  return defined $n && defined $islands[$n] ? $islands[$n] : undef;
-}
-
-=pod
-
-=head2 $island = $set->first_island
-
-Returns the first island of the set. As a side-effect, sets the
-iterator to the first island.
-
-If the set is empty, returns undef.
-
-=cut
-
-sub first_island {
-  my $self = shift;
-  if($self->cardinality) {
-    $self->{iterator} = 0;
-    return $self->at_island( $self->{iterator} );
-  } else {
-    $self->{iterator} = undef;
-    return undef;
-  }
-}
-
-=pod
-
-=head2 $island = $set->last_island
-
-Returns the last island of the set. As a side-effect, sets the
-iterator to the last island.
-
-If the set is empty, returns undef.
-
-=cut
-
-sub last_island {
-  my $self = shift;
-  if($self->cardinality) {
-    $self->{iterator} = $self->num_islands - 1;
-    return $self->at_island( $self->{iterator} );
-  } else {
-    $self->{iterator} = undef;
-    return undef;
-  }
-}
-
-=pod
-
-=head2 $island = $set->next_island
-
-Advances the iterator forward by one island, and returns the next
-island. If the iterator is undefined, the first island is returned.
-
-Returns undef if the set is empty or if no more islands are available.
-
-=cut 
-
-sub next_island {
-  my $self = shift;
-
-  if($self->cardinality) {
-    $self->{iterator} = defined $self->{iterator} ? ++$self->{iterator} : 0;
-    my $next = $self->at_island( $self->{iterator} );
-    if($next) {
-      return $next;
-    } else {
-      $self->{iterator} = undef;
-      return undef;
-    }
-  } else {
-    $self->{iterator} = undef;
-    return undef;
-  }
-}
-
-=pod
-
-=head2 $island = $set->prev_island
-
-Reverses the iterator backward by one island, and returns the previous
-island. If the iterator is undefined, the last island is returned.
-
-Returns undef if the set is empty or if no more islands are available.
-
-=cut
-
-sub prev_island {
-  my $self = shift;
-  if($self->cardinality) {
-    $self->{iterator} = defined $self->{iterator} ? --$self->{iterator} : $self->num_islands - 1;
-    if($self->{iterator} >= 0) {
-      return $self->at_island( $self->{iterator} );
-    } else {
-      $self->{iterator} = undef;
-      return undef;
-    }
-  } else {
-    $self->{iterator} = undef;
-    return undef;
-  }
-}
-
-=pod
-
-=head2 $island = $set->current_island
-
-Returns the island at the current iterator position.
-
-Returns undef if the set is empty or if the iterator is not defined.
-
-=cut
-
-sub current_island {
-  my $self = shift;
-  return $self->at_island( $self->{iterator} );
-}
-
 1;
 
 __END__
@@ -722,6 +797,22 @@ Martin Krzywinski <martink@bcgsc.ca>
 =head1 HISTORY
 
 =over
+
+=item v0.10 3 Mar 2010
+
+Now inherits from Set::IntSpan vis C<parent> pragma.
+
+Added clone() as an alias to duplicate().
+
+On error, now C<confess> is used instead of C<croak>.
+
+Expanded testing, now with Test::More.
+
+Minor style adjustments in documentation.
+
+=item v0.05 22 Sep 2008
+
+Minor cosmetic fixes.
 
 =item v0.04 17 Sep 2008
 

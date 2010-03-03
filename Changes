@@ -1,5 +1,17 @@
 Revision history for Perl extension Set::IntSpan::Island.
 
+0.10 3 Mar 2010
+
+- now inherits from Set::IntSpan vis C<parent> pragma.
+- added clone() as an alias to duplicate().
+- on error, now C<confess> is used instead of C<croak>.
+- expanded testing, now with Test::More.
+- minor style adjustments in documentation.
+
+0.05 22 Sep 2008
+
+- minor cosmetic fixes.
+
 0.04 Wed Sep 17 2008
 
 - excise() now takes both an integer and set as argument
